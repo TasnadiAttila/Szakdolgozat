@@ -1,81 +1,77 @@
 import socket
 import threading
-import time
+import os
 
-# Define the device classes
-class Device:
-    def __init__(self, name, port_number):
-        self.name = name
-        self.port_number = port_number
-        self.position = (0, 0)
-        self.connected_device = None
-        self.data_collected = None
+host = '127.0.0.1'
+port = 5555
 
-    def setPosition(self, x, y):
-        self.position = (x, y)
+server_running = True
 
-    def connectTo(self, device, verify=False):
-        if verify:
-            self.connected_device = device
-            device.connected_device = self
-        else:
-            self.connected_device = device
+def mobile_device():
+    global server_running
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    def sendData(self, data):
-        if self.connected_device:
-            print(f"{self.name} is sending data: {data}")
-            self.connected_device.receiveData(data)
-        else:
-            print(f"{self.name} is not connected to any device, cannot send data.")
+    server.bind((host, port))
 
-    def receiveData(self, data):
-        print(f"{self.name} received data: {data}")
-        self.data_collected = data
+    server.listen()
 
-# Create socket server for communication
-def device_communication(device):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('localhost', device.port_number))
-        s.listen(1)
+    print("Server listening...")
 
-        # Set a timeout of 1 second on the accept operation
-        s.settimeout(1)
-
+    while server_running:
         try:
-            conn, addr = s.accept()
-        except socket.timeout:
-            # No connection was accepted, so terminate the thread
-            return
+            client, address = server.accept()
+            print(f"Connection from {address} has been established!")
 
-        with conn:
-            print(f"Connected to {device.name} at {device.position}")
-            data = conn.recv(1024)
-            if data:
-                print(f"{device.name} received data: {data.decode()}")
-                device.receiveData(data.decode())
+            client_id = client.recv(1024).decode()
+            if client_id == "Valid_ID":
+                client.send("Authenticated".encode())
+                data = client.recv(1024).decode()
+                print(f"Data received: {data}")
+            else:
+                client.send("Invalid ID".encode())
 
+            client.close()
+        except socket.error:
+            break
 
-# Create device instances
-smartWatch = Device("Smart Watch", 4214)
-mobilePhone = Device("Mobile Phone", 4215)
-attacker = Device("Attacker", 4216)
+    server.close()
 
-# Place the devices within range of each other
-smartWatch.setPosition(0, 0)
-mobilePhone.setPosition(10, 0)
-attacker.setPosition(5, 0)
+def smart_watch():
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-# Securely connect the mobile phone to the smartwatch (one-time verification)
-smartWatch.connectTo(mobilePhone, verify=True)
+    client.connect((host, port))
 
-# Set up threads for device communication
-threading.Thread(target=device_communication, args=(smartWatch,)).start()
-threading.Thread(target=device_communication, args=(mobilePhone,)).start()
-threading.Thread(target=device_communication, args=(attacker,)).start()
+    client.send("Valid_ID".encode())
 
-# Simulate data collection from the smartwatch
-data_to_send = [1, 2, 3]
-smartWatch.sendData(data_to_send)
+    response = client.recv(1024).decode()
+    print(f"Server response: {response}")
 
-# Attacker receives data from the smartwatch
-attacker.receiveData(data_to_send)
+    if response == "Authenticated":
+        data_to_send = "Sensitive Patient information."
+        client.send(data_to_send.encode())
+
+    client.close()
+
+def attacker():
+    global server_running
+
+    attacker_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    attacker_client.connect((host, port))
+
+    attacker_client.send("Invalid_ID".encode())
+    response = attacker_client.recv(1024).decode()
+    print(f"Server response to attacker: {response}")
+
+    if response == "Invalid ID":
+        print("The attacker tried to interfere. Closing connection to prevent any further harm.")
+        attacker_client.close()
+        server_running = False  
+
+        os._exit(0)  
+
+server_thread = threading.Thread(target=mobile_device)
+server_thread.start()
+
+smart_watch()
+attacker()
