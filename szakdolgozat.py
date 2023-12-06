@@ -1,122 +1,160 @@
+import os
 import socket
 import threading
-import os
-import secrets
+import time
 
-host = '127.0.0.1'
-port = 5555
+host_phone = '127.0.0.1'
+port_phone = 5555
 
-server_running = True
+host_server = '127.0.0.1'
+port_server = 6666
 
-# A dictionary to store secret keys for each device
-secret_keys = {}
+phone_lock = threading.Lock()
+watch_lock = threading.Lock()
+attacker_lock = threading.Lock()
 
-def register_device(device_id):
-    # Generate a secret key for the device
-    secret_key = secrets.token_hex(16)
-    secret_keys[device_id] = secret_key
-    return secret_key
-
-def smart_watch():
-    global server_running
-    watch_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-    watch_server.bind((host, port))
-    watch_server.listen()
-
-    print("Smart Watch Server listening...")
-
-    while server_running:
-        try:
-            client, address = watch_server.accept()
-            print(f"Connection from {address} has been established!")
-
-            client_id = client.recv(1024).decode()
-            if client_id in secret_keys:
-                client.send("Authenticated".encode())
-
-                # Here, the smartwatch only sends data and does not receive or process any data
-                data_to_send = "Data from smartwatch."
-                sent = client.send(data_to_send.encode())
-                print(f"Smart watch sent {sent} bytes of data.")
-
-            client.close()
-        except socket.error:
-            break
-
-    watch_server.close()
+running = True  # Flag to indicate if the threads should continue running
 
 
-def mobile_device():
-    global server_running
+def diffie_hellman():
+    # Publicly known prime and base values
+    prime = 23
+    base = 5
 
-    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Private keys for client and server
+    private_key_server = 6  # Replace with a secure random number
+    private_key_client = 15  # Replace with a secure random number
 
-    client.connect((host, port))
+    # Calculation of public keys to be exchanged
+    public_key_server = (base ** private_key_server) % prime
+    public_key_client = (base ** private_key_client) % prime
 
-    client.send("MobileDevice_ID".encode())
+    # Shared secret key computation
+    shared_key_server = (public_key_client ** private_key_server) % prime
+    shared_key_client = (public_key_server ** private_key_client) % prime
 
-    response = client.recv(1024).decode()
-    print(f"Server response to mobile device: {response}")
+    return shared_key_server, shared_key_client
 
-    if response == "Registered":
-        print("Mobile device already registered.")
-        client.close()
-        return
 
-    if response == "Authenticated":
-        received_key = client.recv(1024).decode()
-        print(f"Received key: {received_key}")
+def phone_client():
+    global running
+    shared_key_client, _ = diffie_hellman()  # Phone's shared key
 
-        # Check if the received key matches the registered key for the mobile device
-        if received_key in secret_keys.values():
-            if secret_keys["MobileDevice_ID"] == received_key:
-                data_received = client.recv(1024).decode()
-                print(f"Mobile device received data: {data_received}")
-                # Process the received data as needed
-            else:
-                print("Unauthorized key used by mobile device. Closing connection.")
-        else:
-            print("Key not found in registered devices. Closing connection.")
-            os._exit
+    while running:
+        with phone_lock:
+            try:
+                phone_client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                phone_client_socket.connect((host_server, port_server))
+
+                phone_client_socket.send(str(shared_key_client).encode())
+
+                response = phone_client_socket.recv(1024).decode()
+                print(f"Main server response to Phone: {response}")
+
+                if response == "Server_Authenticated":
+                    data_received = phone_client_socket.recv(1024).decode()
+                    print(f"Data received from server: {data_received}")
+
+                phone_client_socket.close()
+            except ConnectionResetError as e:
+                print(f"ConnectionResetError occurred: {e}")
+                continue  # Continue with the loop even after encountering the exception
+
+
+
+
+def smartwatch_client():
+    global running
+    shared_key_client, _ = diffie_hellman()  # Smartwatch's shared key
+
+    while running:
+        with watch_lock:
+            smartwatch_client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            smartwatch_client_socket.connect((host_server, port_server))
+
+            smartwatch_client_socket.send(str(shared_key_client).encode())
+
+            response = smartwatch_client_socket.recv(1024).decode()
+            print(f"Main server response to SmartWatch: {response}")
+
+            if response == "Server_Authenticated":
+                data_to_send = "Sensitive Patient XD."
+                smartwatch_client_socket.send(data_to_send.encode())
 
 
 def attacker():
-    global server_running
+    global running
+    _, attacker_shared_key = diffie_hellman()  # Attacker's shared key
 
-    attacker_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    with attacker_lock:
+        attacker_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        attacker_client.connect((host_server, port_server))
 
-    attacker_client.connect((host, port))
+        attacker_client.send(str(attacker_shared_key).encode())
+        response = attacker_client.recv(1024).decode()
+        print(f"Main server response to attacker: {response}")
 
-    # Attacker does not attempt to send any key, assuming no authentication
-    attacker_client.send("Malicious_Attacker".encode())
-    response = attacker_client.recv(1024).decode()
-    print(f"Server response to attacker: {response}")
+        if "Server_Invalid ID" in response:
+            print("The attacker tried to interfere. Closing connection to prevent any further harm.")
+        else:
+            print("The attacker connection was not identified by the server as invalid.")
 
-    # The attacker is aware of not being authenticated, no further actions are attempted
+def main_server():
+    global running
+    shared_key_server, attacker_shared_key = diffie_hellman()  # Server's shared key and attacker's shared key
 
-    print("The attacker attempted authentication. Closing connection.")
-    attacker_client.close()
-    os._exit(0)
+    while running:
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.bind((host_server, port_server))
+        server.listen()
 
-     
+        print("Main server listening...")
 
+        while running:
+            client, address = server.accept()
+            print(f"Connection from {address} has been established!")
 
-# Registering the smartwatch device to get the secret key
-register_device("SmartWatch_ID")
+            client_key = client.recv(1024).decode()
+            client_key = int(client_key) if client_key.isdigit() else None
 
-# Register the mobile device to get the secret key
-register_device("MobileDevice_ID")
+            if client_key == shared_key_server:  # Authentication based on shared key
+                client.send("Server_Authenticated".encode())
+                data_to_send = "Sensitive Patient information."
+                client.send(data_to_send.encode())
+            elif client_key == attacker_shared_key:  # Check for attacker's key
+                print(f"Detected attacker from {address}. Closing the connection.")
+                client.send("Authentication failed for attacker".encode())  # Log authentication failure
+                print("Authentication failed for attacker")
+                client.close()  # Close the connection immediately
+            else:
+                client.send("Server_Invalid ID".encode())
 
-# Run smart_watch() as a separate thread acting as a server
-watch_server_thread = threading.Thread(target=smart_watch)
-watch_server_thread.start()
+stop_phone = threading.Event()
+stop_watch = threading.Event()
+stop_server = threading.Event()
+stop_attacker = threading.Event()
 
-# Run mobile_device() and attacker() as clients
-mobile_device_thread = threading.Thread(target=mobile_device)
-attacker_thread = threading.Thread(target=attacker)
+phone_client_thread = threading.Thread(target=phone_client)
+smartwatch_client_thread = threading.Thread(target=smartwatch_client)
+main_server_thread = threading.Thread(target=main_server)
+attacker_client_thread = threading.Thread(target=attacker)
 
-attacker_thread.start()
-mobile_device_thread.start()
+phone_client_thread.start()
+smartwatch_client_thread.start()
+main_server_thread.start()
 
-#TODO: The phone is authenticated but not its not registered
+attacker_client_thread.start()
+
+time.sleep(2)  # Wait before stopping the threads
+running = False
+
+stop_phone.set()
+stop_watch.set()
+stop_server.set()
+stop_attacker.set()
+
+# Join the threads to wait for them to complete
+phone_client_thread.join()
+smartwatch_client_thread.join()
+main_server_thread.join()
+attacker_client_thread.join()
