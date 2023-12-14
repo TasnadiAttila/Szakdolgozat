@@ -32,6 +32,7 @@ def main_server():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((host_server, port_server))
     server.listen()
+    server.settimeout(1)  # Set a timeout for the accept call
 
     print("Main server listening...")
 
@@ -70,21 +71,22 @@ def main_server():
             else:
                 client.send("Invalid client ID".encode())
 
-            # Close the client socket after data exchange
             client.close()
+        except socket.timeout:
+            continue
         except Exception as e:
             print(f"Error occurred: {e}")
+            break
 
 def stop_server():
     global running, server
 
     running = False
+    time.sleep(1)  # Allow time for server loop to exit
 
-    # Close the server socket to stop accepting new connections
     if server:
         server.close()
-        server = None  # Set server socket to None after closing
-
+        print("Server stopped.")
 
 def phone_client():
     try:
