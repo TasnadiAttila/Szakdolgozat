@@ -13,6 +13,9 @@ phone_lock = threading.Lock()
 watch_lock = threading.Lock()
 attacker_lock = threading.Lock()
 
+# Shared data
+data_from_smartwatch = None
+
 running = True  # Flag to indicate if the threads should continue running
 server = None  # Global variable to hold the server socket
 
@@ -27,7 +30,7 @@ attacker_key = RSA.generate(2048)
 attacker_public_key = attacker_key.publickey()
 
 def main_server():
-    global running, server
+    global running, server, data_from_smartwatch
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((host_server, port_server))
@@ -45,13 +48,14 @@ def main_server():
 
             if client_key == phone_public_key.export_key():
                 with phone_lock:
+                    # Send an authentication confirmation message to the phone
                     client.send("Server_Authenticated".encode())
-                    data_received = client.recv(1024)
 
-                    # Decrypt received data with server's private key
-                    cipher = PKCS1_OAEP.new(server_key)
-                    decrypted_data = cipher.decrypt(data_received)
-                    print(f"Data received from phone: {decrypted_data.decode()}")
+                    if data_from_smartwatch is not None:
+                        # Send data received from smartwatch to phone
+                        cipher = PKCS1_OAEP.new(phone_key)
+                        encrypted_data = cipher.encrypt(data_from_smartwatch.encode())
+                        client.send(encrypted_data)
 
             elif client_key == watch_public_key.export_key():
                 with watch_lock:
@@ -62,6 +66,9 @@ def main_server():
                     cipher = PKCS1_OAEP.new(server_key)
                     decrypted_data = cipher.decrypt(data_received)
                     print(f"Data received from smartwatch: {decrypted_data.decode()}")
+
+                    # Store the data from smartwatch
+                    data_from_smartwatch = decrypted_data.decode()
 
             elif client_key == attacker_public_key.export_key():
                 with attacker_lock:
@@ -96,15 +103,16 @@ def phone_client():
         # Send phone's public key without encryption
         phone_client_socket.send(phone_public_key.export_key())
 
-        response = phone_client_socket.recv(1024).decode()
-        print(f"Main server response to Phone: {response}")
+        # Receive server authentication response
+        server_response = phone_client_socket.recv(1024).decode()
+        print(f"Main server response to Phone: {server_response}")
 
-        if response == "Server_Authenticated":
-            data_to_send = "Sensitive data from phone."
-            cipher = PKCS1_OAEP.new(server_key)
-            encrypted_data = cipher.encrypt(data_to_send.encode())
-
-            phone_client_socket.send(encrypted_data)
+        # Receive and decrypt data from the server
+        if server_response == "Server_Authenticated":
+            encrypted_data = phone_client_socket.recv(1024)
+            cipher = PKCS1_OAEP.new(phone_key)
+            decrypted_data = cipher.decrypt(encrypted_data)
+            print(f"Data received from server: {decrypted_data.decode()}")
 
         phone_client_socket.close()
     except Exception as e:
@@ -151,17 +159,22 @@ def attacker_client():
 main_server_thread = threading.Thread(target=main_server)
 main_server_thread.start()
 
-# Initiating client threads
-phone_client_thread = threading.Thread(target=phone_client)
+# Initiating smartwatch and phone client threads
 smartwatch_client_thread = threading.Thread(target=smartwatch_client)
-attacker_client_thread = threading.Thread(target=attacker_client)
+phone_client_thread = threading.Thread(target=phone_client)
 
-phone_client_thread.start()
 smartwatch_client_thread.start()
+phone_client_thread.start()
+
+# Adding a short delay to ensure the phone client completes its interaction before the attacker client starts
+time.sleep(1)
+
+# Initiating attacker client thread
+attacker_client_thread = threading.Thread(target=attacker_client)
 attacker_client_thread.start()
 
-# Sleep for 5 seconds to simulate server operation
-time.sleep(5)
+# Sleep for additional time to simulate server operation
+time.sleep(4)
 
-# Stop the server after 5 seconds
+# Stop the server after the operations
 stop_server()
