@@ -2,12 +2,18 @@ import socket
 import threading
 import time
 import os
+import hashlib
 
 # Importálja az Ascon funkciókat a 'ascon.py'-ból
 from ascon import ascon_hash, ascon_mac
 
-# Előre megosztott titkos kulcs (16 bájt hosszú)
-shared_secret = os.urandom(16)
+# Kezdeti jelszó alapú kulcsgenerálás
+def generate_symmetric_key():
+    password = input("Adja meg a jelszót a kulcs generálásához: ")
+    return hashlib.sha256(password.encode()).digest()[:16]
+
+# Előre megosztott titkos kulcs
+shared_secret = generate_symmetric_key()
 
 def handle_client_connection(client_socket):
     try:
@@ -61,12 +67,14 @@ def start_client():
         client_socket.close()
 
 
-# Szerver szál indítása
-server_thread = threading.Thread(target=start_server)
-server_thread.start()
+# Szerver és kliens indítása
+if __name__ == "__main__":
+    # Szerver szál indítása
+    server_thread = threading.Thread(target=start_server)
+    server_thread.start()
 
-# Kliens indítása
-start_client()
+    # Kliens indítása
+    start_client()
 
-# Szerver szál befejezése
-server_thread.join()
+    # Szerver szál befejezése
+    server_thread.join()
