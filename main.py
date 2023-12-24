@@ -51,7 +51,7 @@ def smartPhone():
     print("Data received from server: ", decrypted_data.decode())
     phone_socket.close()
 
-# Run the server and client in separate threads
+# Run the server and client in separate threads.
 server_thread = threading.Thread(target=server)
 smartWatch_thread = threading.Thread(target=smartWatch)
 smartPhone_thread = threading.Thread(target=smartPhone)
