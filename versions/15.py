@@ -1,11 +1,10 @@
-import os
 import socket
 import threading
 import time
 import hashlib
 
 # Importálja az Ascon funkciókat a 'ascon.py'-ból
-from ascon import ascon_hash, ascon_mac, ascon_encrypt, ascon_decrypt
+from ascon import ascon_hash, ascon_mac
 
 def generate_symmetric_key(user_input=False):
     if user_input:
@@ -13,12 +12,6 @@ def generate_symmetric_key(user_input=False):
     else:
         password = "automatikus_jelszo"  # Az automatikus jelszó a támadónak
     return hashlib.sha256(password.encode()).digest()[:16]
-
-def generate_random_bytes(length):
-    return os.urandom(length)
-
-key = generate_random_bytes(16)
-nonce = generate_random_bytes(16)
 
 # Előre megosztott titkos kulcs a szerver számára
 shared_secret = generate_symmetric_key(user_input=True)
@@ -36,15 +29,15 @@ def handle_client_connection(client_socket, addr):
         timestamp = str(time.time()).encode()
         hash_challenge = ascon_hash(timestamp + b"kliens", "Ascon-Hash")
         mac = ascon_mac(shared_secret, hash_challenge, "Ascon-Mac")
+
         client_socket.send(timestamp + mac)
 
         response = client_socket.recv(1024)
         if response != mac:
             print(f"Hitelesítés sikertelen a következő kliens részéről: {client_type} ({addr})")
             return
-        else:
-            print(f"Kliens sikeresen hitelesítve: {client_type} ({addr})")
 
+        print(f"Kliens sikeresen hitelesítve: {client_type} ({addr})")
     except Exception as e:
         print(f"Hiba a kliens kezelésekor ({client_type}, {addr}): {e}")
     finally:
@@ -73,7 +66,7 @@ def smartWatch():
     smartWatch_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     smartWatch_socket.connect((local, port))
     smartWatch_socket.send(b"SmartWatch")  # Kliens típusának elküldése
-    #print("Csatlakozva a szerverhez.")
+    print("Csatlakozva a szerverhez.")
 
     try:
         data = smartWatch_socket.recv(1024)
@@ -84,12 +77,7 @@ def smartWatch():
 
         smartWatch_socket.send(smartWatchMac)
         if server_mac == smartWatchMac:
-            #print("SmartWatch sikeresen hitelesítve.")
-            message = 'Sensitive message from smartWatch'
-            associated_data = b'sensitiveInfo'
-            encrypted_data = ascon_encrypt(key,nonce,associated_data,message.encode())
-            smartWatch_socket.send(encrypted_data)
-            print('Sensitive data sent ' + encrypted_data)
+            print("SmartWatch sikeresen hitelesítve.")
         else:
             print("Hitelesítés sikertelen a SmartWatch részéről!")
     finally:
@@ -100,7 +88,7 @@ def smartPhone():
     smartPhone_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     smartPhone_socket.connect((local, port))
     smartPhone_socket.send(b"SmartPhone")  # Kliens típusának elküldése
-    #print("Csatlakozva a szerverhez.")
+    print("Csatlakozva a szerverhez.")
 
     try:
         data = smartPhone_socket.recv(1024)
@@ -111,12 +99,7 @@ def smartPhone():
 
         smartPhone_socket.send(smartPhoneMac)
         if server_mac == smartPhoneMac:
-            #print("SmartPhone sikeresen hitelesítve.")
-            encrypted_data = smartPhone_socket.recv(1024)
-            associated_data = b'sensitiveInfo'
-            decrypted_data = ascon_decrypt(key, nonce, associated_data, encrypted_data,"Ascon-128")
-            print("Data received from server: ", decrypted_data.decode())
-
+            print("SmartPhone sikeresen hitelesítve.")
         else:
             print("Hitelesítés sikertelen a SmartPhone részéről!")
     finally:
@@ -127,13 +110,13 @@ def attacker():
     attacker_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     attacker_socket.connect((local, port))
     attacker_socket.send(b"Attacker")  # Kliens típusának elküldése
-    #print("Támadó csatlakozva a szerverhez.")
+    print("Támadó csatlakozva a szerverhez.")
 
     try:
         data = attacker_socket.recv(1024)
         timestamp = data[:len(data)-16]
         server_mac = data[len(data)-16:]
-        hash_challenge = ascon_hash(timestamp + b"attacker", "Ascon-Hash")
+        hash_challenge = ascon_hash(timestamp + b"kliens", "Ascon-Hash")
         attacker_mac = ascon_mac(attacker_secret, hash_challenge, "Ascon-Mac")
 
         attacker_socket.send(attacker_mac)
@@ -141,7 +124,6 @@ def attacker():
             print("Attacker sikeresen hitelesítve.")
         else:
             print("Hitelesítés sikertelen az Attacker részéről!")
-            print("Az Attacker sikertelen hitelesítés miatt nem férhet hozzá az adatokhzok!")
     finally:
         attacker_socket.close()
 
