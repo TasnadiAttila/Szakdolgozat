@@ -4,7 +4,6 @@ import threading
 import time
 import hashlib
 
-# Importálja az Ascon funkciókat a 'ascon.py'-ból
 from ascon import ascon_hash, ascon_mac, ascon_encrypt, ascon_decrypt
 
 def generate_symmetric_key(user_input=False):
