@@ -4,6 +4,7 @@ import threading
 import time
 import hashlib
 
+# Importálja az Ascon funkciókat a 'ascon.py'-ból
 from ascon import ascon_hash, ascon_mac, ascon_encrypt, ascon_decrypt
 
 def generate_symmetric_key(user_input=False):
@@ -31,13 +32,18 @@ last_encrypted_message = b''
 def handle_client_connection(client_socket, addr):
     global last_encrypted_message
 
+    start_time = time.time()  # Időmérés kezdete
+
     try:
         client_type = client_socket.recv(1024).decode()
         print(f"Kapcsolódott: {client_type} ({addr})")
 
+        # Hitelesítési kihívás
+        auth_start_time = time.time()
         timestamp = str(time.time()).encode()
         hash_challenge = ascon_hash(timestamp + b"kliens", "Ascon-Hash")
         mac = ascon_mac(shared_secret, hash_challenge, "Ascon-Mac")
+        auth_end_time = time.time()
 
         client_socket.send(timestamp + mac)
 
@@ -47,20 +53,33 @@ def handle_client_connection(client_socket, addr):
             return
 
         print(f"Kliens sikeresen hitelesítve: {client_type} ({addr})")
+        print(f"Hitelesítési idő: {auth_end_time - auth_start_time} másodperc")
+
+        # Különböző kliensek kezelése
         if client_type == "SmartWatch":
+            encryption_start = time.time()
             encrypted_data = client_socket.recv(1024)
             print("Erkezett üzenet: ", encrypted_data)
             last_encrypted_message = encrypted_data  # Frissítjük a globális változót
+            encryption_end = time.time()
+            print(f"Titkosítási idő (SmartWatch): {encryption_end - encryption_start} másodperc")
 
         elif client_type == "SmartPhone":
+            decryption_start = time.time()
             encrypted_data = last_encrypted_message  # Használjuk a globális változót
             client_socket.send(encrypted_data)
             print("Kuldott üzenet: ", encrypted_data)
+            decryption_end = time.time()
+            print(f"Titkosítási idő (SmartPhone): {decryption_end - decryption_start} másodperc")
 
     except Exception as e:
         print(f"Hiba a kliens kezelésekor ({client_type}, {addr}): {e}")
     finally:
         client_socket.close()
+
+    end_time = time.time()  # Időmérés vége
+    print(f"Kliens kezelésének összes ideje: {end_time - start_time} másodperc")
+
 
 def mainServer():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
